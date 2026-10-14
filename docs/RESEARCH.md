@@ -1,6 +1,8 @@
 # Research: Web driver cho chuột HyperWork Silentium Gen 2
 
-> Cập nhật: 2026-10-14. Trạng thái: **giai đoạn thu thập thông tin, chưa có giao thức (protocol) của thiết bị**.
+> Cập nhật: 2026-10-14. Trạng thái: đã giải mã giao thức **cập nhật firmware qua BLE** (xem [OTA.md](OTA.md));
+> giao thức cấu hình DPI/nút lúc chạy vẫn chưa có. Một số nhận định bên dưới (giả định cập nhật qua USB, chip chưa rõ)
+> đã được OTA.md thay thế.
 
 ## 1. Tóm tắt
 

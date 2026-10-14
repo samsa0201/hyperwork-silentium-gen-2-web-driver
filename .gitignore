@@ -1,0 +1,5 @@
+# Vendor firmware / tools — do not commit
+*.rar
+*.bin
+*.dat
+MS01G2UPDATE.zip

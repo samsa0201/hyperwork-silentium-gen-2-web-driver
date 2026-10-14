@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silentium OTA</title>
+<style>
+  :root { --bg:#fff; --fg:#1b1b1b; --muted:#666; --line:#ddd; --accent:#0b62d6; --warn:#b54708; --ok:#067647; --bad:#b42318; --code:#f5f5f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#151515; --fg:#e8e8e8; --muted:#9a9a9a; --line:#333; --accent:#5b9dff; --warn:#f0a35e; --ok:#4ad295; --bad:#ff7a70; --code:#1f1f1f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0 auto; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui, sans-serif; max-width:860px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:24px 0 8px; }
+  p { margin:0 0 10px; }
+  .muted { color:var(--muted); }
+  .warn { color:var(--warn); }
+  .ok { color:var(--ok); }
+  .bad { color:var(--bad); }
+  button, input, select { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  button { cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0; }
+  pre { background:var(--code); padding:12px; border-radius:6px; overflow:auto; font:12px/1.45 ui-monospace, monospace; margin:0; white-space:pre-wrap; word-break:break-all; }
+  #log { max-height:320px; }
+  progress { width:100%; height:18px; }
+  ol { padding-left:20px; margin:0 0 10px; }
+</style>
+</head>
+<body>
+<h1>Silentium Gen 2 — cập nhật firmware qua Bluetooth</h1>
+<p class="muted">Thay cho BLEOTATool (chỉ có trên Windows). Dùng Web Bluetooth, chạy trên Chrome/Edge desktop
+(macOS, Windows, ChromeOS) qua <code>http://localhost</code> hoặc HTTPS. Giao thức: Nordic Secure DFU (service
+<code>0xFE59</code>) trên chip OnMicro OM6621, lấy từ việc dịch ngược công cụ chính hãng — xem <code>docs/OTA.md</code>.</p>
+
+<h2>1. Chọn file firmware</h2>
+<p>File <code>MS01G2UPDATE.zip</code> nằm trong gói <code>MS01_G2_update.rar</code> do HyperWork phát hành (giải nén file .rar trước).</p>
+<div class="row"><input type="file" id="file" accept=".zip"></div>
+<pre id="fileInfo">Chưa chọn file.</pre>
+
+<h2>2. Đưa chuột vào chế độ ghép nối Bluetooth</h2>
+<ol>
+  <li>Gạt chuột sang chế độ <b>Bluetooth</b>.</li>
+  <li>Giữ nút kết nối khoảng <b>3 giây</b> cho tới khi chuột vào chế độ ghép nối.</li>
+  <li><b>Không</b> ghép nối chuột với máy tính trong cài đặt Bluetooth của hệ điều hành.</li>
+  <li>Sạc chuột đủ pin; không tắt chuột hay đóng tab trong lúc cập nhật.</li>
+</ol>
+
+<h2>3. Kết nối</h2>
+<div class="row">
+  <button id="connect" class="primary">Chọn chuột…</button>
+  <button id="disconnect" disabled>Ngắt kết nối</button>
+  <label>Kích thước gói
+    <select id="chunk">
+      <option value="20" selected>20 byte (an toàn, chậm)</option>
+      <option value="60">60 byte</option>
+      <option value="128">128 byte</option>
+      <option value="182">182 byte</option>
+      <option value="244">244 byte</option>
+    </select>
+  </label>
+</div>
+<p class="muted">Hộp chọn thiết bị liệt kê mọi thiết bị Bluetooth đang quảng bá; chọn đúng tên chuột. Web Bluetooth không cho biết MTU — nếu
+gói lớn bị lỗi, chọn lại 20 byte.</p>
+<pre id="devInfo">Chưa kết nối.</pre>
+
+<h2>4. Cập nhật</h2>
+<div class="row">
+  <label><input type="checkbox" id="ack"> Tôi hiểu việc nạp firmware có thể làm hỏng chuột nếu bị gián đoạn hoặc dùng sai file.</label>
+</div>
+<div class="row"><button id="update" class="primary" disabled>Bắt đầu cập nhật</button></div>
+<progress id="progress" max="1" value="0"></progress>
+<p id="status"></p>
+
+<h2>Log</h2>
+<pre id="log"></pre>
+
+<script>
+"use strict";
+
+const DFU_SERVICE = 0xfe59;
+const DFU_CONTROL_POINT = "8ec90001-f315-4f60-9fb8-838830daea50";
+const DFU_PACKET = "8ec90002-f315-4f60-9fb8-838830daea50";
+const DEVICE_INFO_SERVICE = 0x180a;
+// Serial Number (0x2A25) is on the Web Bluetooth blocklist, so it is not read.
+const DEVICE_INFO_CHARS = { 0x2a24: "Model", 0x2a26: "Firmware", 0x2a27: "Hardware", 0x2a28: "Software", 0x2a23: "System ID" };
+
+const OP = { CREATE: 0x01, SET_PRN: 0x02, CALC_CHECKSUM: 0x03, EXECUTE: 0x04, SELECT: 0x06, RESPONSE: 0x60 };
+const OBJ = { COMMAND: 0x01, DATA: 0x02 };
+const RESULT = { 0: "INVALID", 1: "SUCCESS", 2: "OP_CODE_NOT_SUPPORTED", 3: "INVALID_PARAMETER", 4: "INSUFFICIENT_RESOURCES",
+  5: "INVALID_OBJECT", 7: "UNSUPPORTED_TYPE", 8: "OPERATION_NOT_PERMITTED", 10: "OPERATION_FAILED", 11: "EXT_ERROR" };
+const RESPONSE_TIMEOUT_MS = 5000;
+
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(" ");
+const hex32 = (n) => "0x" + (n >>> 0).toString(16).padStart(8, "0");
+
+function log(msg, cls) {
+  const line = document.createElement("div");
+  line.textContent = `[${new Date().toISOString().slice(11, 23)}] ${msg}`;
+  if (cls) line.className = cls;
+  $("log").append(line);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+// ---------- CRC32 (IEEE, same as the vendor tool) ----------
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes, crc = 0) {
+  crc = ~crc >>> 0;
+  for (let i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+  return ~crc >>> 0;
+}
+
+// ---------- Minimal ZIP reader (stored + deflate) ----------
+async function readZip(buf) {
+  const u8 = new Uint8Array(buf);
+  const dv = new DataView(buf);
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 22 - 0xffff); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("Không phải file zip hợp lệ");
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const entries = new Map();
+  for (let i = 0; i < count; i++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error("Central directory hỏng");
+    const method = dv.getUint16(p + 10, true);
+    const compSize = dv.getUint32(p + 20, true);
+    const size = dv.getUint32(p + 24, true);
+    const nameLen = dv.getUint16(p + 28, true), extraLen = dv.getUint16(p + 30, true), commentLen = dv.getUint16(p + 32, true);
+    const localOffset = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nameLen));
+    entries.set(name, { method, compSize, size, localOffset });
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  async function read(name) {
+    const e = entries.get(name);
+    if (!e) throw new Error(`Zip thiếu file ${name}`);
+    const lo = e.localOffset;
+    const start = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true);
+    const raw = u8.subarray(start, start + e.compSize);
+    let out;
+    if (e.method === 0) out = raw.slice();
+    else if (e.method === 8) {
+      const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      out = new Uint8Array(await new Response(stream).arrayBuffer());
+    } else throw new Error(`Kiểu nén ${e.method} không hỗ trợ`);
+    if (out.length !== e.size) throw new Error(`${name}: sai kích thước sau giải nén`);
+    return out;
+  }
+  return { names: [...entries.keys()], read };
+}
+
+async function loadPackage(buf) {
+  const zip = await readZip(buf);
+  const manifest = JSON.parse(new TextDecoder().decode(await zip.read("manifest.json")));
+  const app = manifest?.manifest?.application;
+  if (!app?.bin_file || !app?.dat_file) throw new Error("manifest.json không có application.bin_file/dat_file");
+  for (const k of ["bootloader", "softdevice", "softdevice_bootloader"]) {
+    if (manifest.manifest[k]) throw new Error(`Gói có "${k}" — trang này chỉ hỗ trợ cập nhật application như công cụ gốc`);
+  }
+  const init = await zip.read(app.dat_file);
+  const image = await zip.read(app.bin_file);
+  return { init, image };
+}
+
+// ---------- BLE transport ----------
+let device = null, controlPoint = null, packetChar = null, pkg = null;
+let pending = null; // { resolve, reject, timer }
+
+function onControlPointNotify(e) {
+  const v = new Uint8Array(e.target.value.buffer.slice(e.target.value.byteOffset, e.target.value.byteOffset + e.target.value.byteLength));
+  if (!pending) { log(`Notify ngoài luồng: ${hex(v)}`, "warn"); return; }
+  const { resolve, reject, timer } = pending;
+  pending = null;
+  clearTimeout(timer);
+  if (v.length < 3) reject(new Error(`Phản hồi không hợp lệ: ${hex(v)}`));
+  else resolve(v);
+}
+
+function onDisconnected() {
+  log("Thiết bị đã ngắt kết nối", "warn");
+  if (pending) { clearTimeout(pending.timer); pending.reject(new Error("Mất kết nối")); pending = null; }
+  controlPoint = packetChar = null;
+  refreshButtons();
+}
+
+async function command(bytes) {
+  if (pending) throw new Error("Đang chờ phản hồi lệnh trước");
+  const response = new Promise((resolve, reject) => {
+    pending = { resolve, reject, timer: setTimeout(() => { pending = null; reject(new Error("DFU timeout")); }, RESPONSE_TIMEOUT_MS) };
+  });
+  try {
+    await controlPoint.writeValueWithResponse(Uint8Array.from(bytes));
+  } catch (err) {
+    if (pending) { clearTimeout(pending.timer); pending = null; }
+    throw err;
+  }
+  const r = await response;
+  if (r[0] !== OP.RESPONSE || r[1] !== bytes[0]) throw new Error(`Phản hồi sai lệnh: ${hex(r)}`);
+  if (r[2] !== 1) throw new Error(`Lệnh 0x${bytes[0].toString(16)} thất bại: ${RESULT[r[2]] || r[2]} (${hex(r)})`);
+  return new DataView(r.buffer);
+}
+
+const u32le = (n) => [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
+
+async function selectObject(type) {
+  const r = await command([OP.SELECT, type]);
+  return { maxSize: r.getUint32(3, true), offset: r.getUint32(7, true), crc: r.getUint32(11, true) };
+}
+async function createObject(type, size) { await command([OP.CREATE, type, ...u32le(size)]); }
+async function setPrn(n) { await command([OP.SET_PRN, n & 0xff, (n >>> 8) & 0xff]); }
+async function calcChecksum() {
+  const r = await command([OP.CALC_CHECKSUM]);
+  return { offset: r.getUint32(3, true), crc: r.getUint32(7, true) };
+}
+async function execute() { await command([OP.EXECUTE]); }
+
+async function transfer(data, from, to, chunk, onProgress) {
+  for (let off = from; off < to; off += chunk) {
+    await packetChar.writeValueWithoutResponse(data.subarray(off, Math.min(off + chunk, to)));
+    onProgress?.(Math.min(off + chunk, to));
+    await sleep(1);
+  }
+}
+
+// Mirrors BLEOTATool.sendInitPacket(): resume if the device already holds a valid prefix.
+async function sendInitPacket(init, chunk) {
+  log(`Init packet: ${init.length} byte`);
+  const info = await selectObject(OBJ.COMMAND);
+  log(`Select command: maxSize=${info.maxSize} offset=${info.offset} crc=${hex32(info.crc)}`);
+  let offset = 0;
+  if (info.offset > 0 && info.offset <= init.length && crc32(init.subarray(0, info.offset)) === info.crc) {
+    if (info.offset === init.length) { log("Init packet đã có sẵn và hợp lệ."); return; }
+    offset = info.offset;
+    log(`Tiếp tục gửi init packet từ byte ${offset}`);
+  }
+  await setPrn(0);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    if (offset === 0) await createObject(OBJ.COMMAND, init.length);
+    await transfer(init, offset, init.length, chunk);
+    const c = await calcChecksum();
+    const local = crc32(init);
+    log(`Init checksum: local=${hex32(local)} remote=${hex32(c.crc)} offset=${c.offset}`);
+    if (c.crc === local && c.offset === init.length) { await execute(); log("Init packet OK."); return; }
+    log(`CRC init packet không khớp, thử lại (${attempt}/3)`, "warn");
+    offset = 0;
+  }
+  throw new Error("CRC init packet không khớp sau 3 lần");
+}
+
+// Mirrors BLEOTATool.sendFirmware(): one Create for the first object, then transfer object by object,
+// verifying the running CRC and executing after each object.
+async function sendFirmware(image, chunk, onProgress) {
+  const info = await selectObject(OBJ.DATA);
+  log(`Select data: maxSize=${info.maxSize} offset=${info.offset} crc=${hex32(info.crc)}`);
+  if (!info.maxSize) throw new Error("Thiết bị trả về maxSize = 0");
+  let offset = 0;
+  if (info.offset > 0 && info.offset <= image.length && crc32(image.subarray(0, info.offset)) === info.crc) {
+    offset = info.offset;
+    log(`Thiết bị đã có ${offset} byte hợp lệ, tiếp tục từ đó.`);
+  }
+  if (offset >= image.length) { await execute(); return; }
+  if (image.length - offset > info.maxSize) {
+    log(`Firmware (${image.length} byte) lớn hơn 1 object (${info.maxSize} byte): làm theo đúng trình tự của công cụ gốc.`, "warn");
+  }
+  await createObject(OBJ.DATA, Math.min(image.length - offset, info.maxSize));
+  await sleep(400);
+  while (offset < image.length) {
+    const end = Math.min(Math.floor(offset / info.maxSize) * info.maxSize + info.maxSize, image.length);
+    await transfer(image, offset, end, chunk, onProgress);
+    await sleep(400);
+    const c = await calcChecksum();
+    const local = crc32(image.subarray(0, end));
+    log(`Checksum: local=${hex32(local)} remote=${hex32(c.crc)} offset=${c.offset}/${image.length}`);
+    if (c.crc !== local || c.offset !== end) throw new Error("CRC firmware không khớp — dừng cập nhật");
+    await execute();
+    offset = end;
+  }
+}
+
+async function readDeviceInfo(server) {
+  const lines = [`Tên: ${device.name || "(không tên)"}`];
+  try {
+    const dis = await server.getPrimaryService(DEVICE_INFO_SERVICE);
+    for (const [uuid, label] of Object.entries(DEVICE_INFO_CHARS)) {
+      try {
+        const v = await (await dis.getCharacteristic(Number(uuid))).readValue();
+        const bytes = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+        lines.push(`${label}: ${uuid == 0x2a23 ? hex(bytes) : new TextDecoder().decode(bytes)}`);
+      } catch { /* characteristic not present */ }
+    }
+  } catch { lines.push("(Không có Device Information Service)"); }
+  return lines.join("\n");
+}
+
+async function connect() {
+  if (!navigator.bluetooth) throw new Error("Trình duyệt không hỗ trợ Web Bluetooth");
+  device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [DFU_SERVICE, DEVICE_INFO_SERVICE] });
+  device.addEventListener("gattserverdisconnected", onDisconnected);
+  log(`Kết nối ${device.name || device.id}…`);
+  const server = await device.gatt.connect();
+  $("devInfo").textContent = await readDeviceInfo(server);
+  let dfu;
+  try { dfu = await server.getPrimaryService(DFU_SERVICE); }
+  catch { throw new Error("Thiết bị này không có service DFU 0xFE59 — có chọn đúng chuột và đang ở chế độ ghép nối không?"); }
+  controlPoint = await dfu.getCharacteristic(DFU_CONTROL_POINT);
+  packetChar = await dfu.getCharacteristic(DFU_PACKET);
+  controlPoint.addEventListener("characteristicvaluechanged", onControlPointNotify);
+  await controlPoint.startNotifications();
+  log("Đã sẵn sàng DFU.", "ok");
+}
+
+let busy = false;
+function refreshButtons() {
+  const connected = !!(device?.gatt?.connected && controlPoint);
+  $("connect").disabled = busy;
+  $("disconnect").disabled = busy || !device?.gatt?.connected;
+  $("update").disabled = busy || !connected || !pkg || !$("ack").checked;
+}
+
+function setStatus(text, cls) { $("status").textContent = text; $("status").className = cls || ""; }
+
+$("file").onchange = async (e) => {
+  pkg = null;
+  const f = e.target.files[0];
+  if (f) {
+    try {
+      const p = await loadPackage(await f.arrayBuffer());
+      const view = new DataView(p.init.buffer);
+      const declared = p.init.length >= 24 ? view.getUint32(20, true) : null;
+      $("fileInfo").textContent =
+        `${f.name}\ninit packet: ${p.init.length} byte, CRC32 ${hex32(crc32(p.init))}\n` +
+        `firmware:    ${p.image.length} byte, CRC32 ${hex32(crc32(p.image))}` +
+        (declared === null ? "" : `\nkích thước khai báo trong init packet: ${declared} byte ${declared === p.image.length ? "(khớp)" : "(KHÔNG khớp)"}`);
+      pkg = p;
+    } catch (err) { $("fileInfo").textContent = `Lỗi: ${err.message}`; }
+  } else $("fileInfo").textContent = "Chưa chọn file.";
+  refreshButtons();
+};
+
+$("ack").onchange = refreshButtons;
+
+$("connect").onclick = async () => {
+  busy = true; refreshButtons();
+  try { await connect(); }
+  catch (err) { log(`Lỗi kết nối: ${err.message}`, "bad"); }
+  finally { busy = false; refreshButtons(); }
+};
+
+$("disconnect").onclick = () => { device?.gatt?.disconnect(); };
+
+$("update").onclick = async () => {
+  if (!confirm("Bắt đầu nạp firmware? Không tắt chuột, không đóng tab cho tới khi xong.")) return;
+  busy = true; refreshButtons();
+  const chunk = Number($("chunk").value);
+  const started = performance.now();
+  $("progress").value = 0;
+  setStatus("Đang cập nhật…");
+  try {
+    log(`Bắt đầu cập nhật, gói ${chunk} byte`);
+    await sendInitPacket(pkg.init, chunk);
+    await sendFirmware(pkg.image, chunk, (done) => {
+      $("progress").value = done / pkg.image.length;
+      setStatus(`Đang cập nhật ${(done * 100 / pkg.image.length).toFixed(1)}%`);
+    });
+    $("progress").value = 1;
+    setStatus(`Cập nhật thành công (${((performance.now() - started) / 1000).toFixed(1)} s). Chuột sẽ tự khởi động lại; hãy kết nối lại như bình thường.`, "ok");
+    log("Upgrade Successed.", "ok");
+  } catch (err) {
+    setStatus(`Cập nhật thất bại: ${err.message}`, "bad");
+    log(`Cập nhật thất bại: ${err.message}`, "bad");
+  } finally { busy = false; refreshButtons(); }
+};
+
+if (!navigator.bluetooth) {
+  setStatus("Trình duyệt này không hỗ trợ Web Bluetooth (hoặc trang không chạy qua localhost/HTTPS). Dùng Chrome hoặc Edge desktop.", "warn");
+  $("connect").disabled = true;
+}
+</script>
+</body>
+</html>
