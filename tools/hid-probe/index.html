@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HID Probe</title>
+<style>
+  :root { --bg:#fff; --fg:#1b1b1b; --muted:#666; --line:#ddd; --accent:#0b62d6; --warn:#b54708; --code:#f5f5f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#151515; --fg:#e8e8e8; --muted:#9a9a9a; --line:#333; --accent:#5b9dff; --warn:#f0a35e; --code:#1f1f1f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui, sans-serif; max-width:1000px; margin-inline:auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:24px 0 8px; }
+  p.note { color:var(--muted); margin:0 0 12px; }
+  .warn { color:var(--warn); }
+  button, input, select { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  button { cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0; }
+  pre { background:var(--code); padding:12px; border-radius:6px; overflow:auto; font:12px/1.45 ui-monospace, monospace; margin:0; }
+  #log { max-height:320px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { border-bottom:1px solid var(--line); padding:4px 6px; text-align:left; vertical-align:top; }
+  code { font-family:ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<h1>HID Probe — HyperWork Silentium Gen 2</h1>
+<p class="note">Dò HID descriptor qua WebHID để chuẩn bị viết web driver. Cần Chrome/Edge desktop và mở qua
+<code>http://localhost</code> hoặc HTTPS. Các collection chuột/bàn phím bị Chrome chặn — chỉ collection vendor-defined dùng được.</p>
+
+<div class="row">
+  <button id="connect" class="primary">Kết nối thiết bị…</button>
+  <select id="devices"></select>
+  <button id="export" disabled>Export JSON</button>
+  <button id="readFeatures" disabled>Đọc tất cả feature report</button>
+</div>
+<p id="support" class="warn"></p>
+
+<h2>Thiết bị</h2>
+<pre id="info">Chưa kết nối.</pre>
+
+<h2>Collections</h2>
+<div id="collections"></div>
+
+<h2>Gửi report thủ công</h2>
+<p class="note warn">Chỉ gửi lệnh bạn đã hiểu (ví dụ lệnh đọc bắt được từ công cụ chính hãng). Gửi lệnh lạ có thể đưa chuột vào bootloader hoặc xoá firmware.</p>
+<div class="row">
+  <select id="kind">
+    <option value="output">Output report (sendReport)</option>
+    <option value="feature">Feature report (sendFeatureReport)</option>
+    <option value="getFeature">Get feature report (receiveFeatureReport)</option>
+  </select>
+  <label>Report ID <input id="reportId" size="4" value="0x00"></label>
+  <input id="payload" size="48" placeholder="payload hex, ví dụ: 08 01 00 00">
+  <button id="send" disabled>Gửi</button>
+</div>
+
+<h2>Log</h2>
+<div class="row"><button id="clear">Xoá log</button></div>
+<pre id="log"></pre>
+
+<script>
+"use strict";
+
+// Generic Desktop usages that Chrome treats as protected (pointer, mouse, keyboard, keypad, system control).
+const PROTECTED_GENERIC_DESKTOP = new Set([0x01, 0x02, 0x06, 0x07, 0x80]);
+const $ = (id) => document.getElementById(id);
+const hex = (n, w = 2) => "0x" + n.toString(16).padStart(w, "0");
+const bytesHex = (view) =>
+  Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength), (b) => b.toString(16).padStart(2, "0")).join(" ");
+
+let devices = [];
+let current = null;
+
+function log(msg) {
+  const line = `[${new Date().toISOString().slice(11, 23)}] ${msg}\n`;
+  const el = $("log");
+  el.textContent += line;
+  el.scrollTop = el.scrollHeight;
+}
+
+function isProtected(c) {
+  return (c.usagePage === 0x01 && PROTECTED_GENERIC_DESKTOP.has(c.usage)) || c.usagePage === 0xf1d0; // FIDO
+}
+
+function reportBytes(report) {
+  const bits = report.items.reduce((sum, it) => sum + it.reportSize * it.reportCount, 0);
+  return Math.ceil(bits / 8);
+}
+
+function serializeReport(r) {
+  return {
+    reportId: r.reportId,
+    byteLength: reportBytes(r),
+    items: r.items.map((it) => ({
+      reportSize: it.reportSize, reportCount: it.reportCount,
+      usages: it.usages, usageMinimum: it.usageMinimum, usageMaximum: it.usageMaximum,
+      logicalMinimum: it.logicalMinimum, logicalMaximum: it.logicalMaximum,
+      isConstant: it.isConstant, isArray: it.isArray, isAbsolute: it.isAbsolute,
+    })),
+  };
+}
+
+function serializeCollection(c) {
+  return {
+    usagePage: c.usagePage, usage: c.usage, type: c.type, protected: isProtected(c),
+    inputReports: (c.inputReports || []).map(serializeReport),
+    outputReports: (c.outputReports || []).map(serializeReport),
+    featureReports: (c.featureReports || []).map(serializeReport),
+    children: (c.children || []).map(serializeCollection),
+  };
+}
+
+function serializeDevice(d) {
+  return {
+    capturedAt: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    productName: d.productName,
+    vendorId: d.vendorId, productId: d.productId,
+    vendorIdHex: hex(d.vendorId, 4), productIdHex: hex(d.productId, 4),
+    collections: d.collections.map(serializeCollection),
+  };
+}
+
+function renderDevice(d) {
+  $("info").textContent = d
+    ? `${d.productName || "(không tên)"}\nVID ${hex(d.vendorId, 4)}  PID ${hex(d.productId, 4)}\nopened: ${d.opened}`
+    : "Chưa kết nối.";
+  const box = $("collections");
+  box.innerHTML = "";
+  if (!d) return;
+  const rows = [];
+  const walk = (c, depth) => {
+    const kinds = [["in", c.inputReports], ["out", c.outputReports], ["feature", c.featureReports]]
+      .flatMap(([k, list]) => (list || []).map((r) => `${k} id=${hex(r.reportId)} ${reportBytes(r)}B`));
+    rows.push(`<tr><td>${"&nbsp;".repeat(depth * 4)}${hex(c.usagePage, 4)}:${hex(c.usage, 4)}</td>` +
+      `<td>${isProtected(c) ? '<span class="warn">bị chặn</span>' : c.usagePage >= 0xff00 ? "<b>vendor</b>" : ""}</td>` +
+      `<td>${kinds.join("<br>") || "—"}</td></tr>`);
+    (c.children || []).forEach((ch) => walk(ch, depth + 1));
+  };
+  d.collections.forEach((c) => walk(c, 0));
+  box.innerHTML = `<table><thead><tr><th>usagePage:usage</th><th></th><th>Reports</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+}
+
+function featureReportIds(d) {
+  const ids = new Set();
+  const walk = (c) => { (c.featureReports || []).forEach((r) => ids.add(r.reportId)); (c.children || []).forEach(walk); };
+  d.collections.forEach(walk);
+  return [...ids];
+}
+
+function onInputReport(e) {
+  log(`IN  id=${hex(e.reportId)} ${bytesHex(e.data)}`);
+}
+
+async function select(d) {
+  if (current) current.removeEventListener("inputreport", onInputReport);
+  current = d;
+  if (d && !d.opened) {
+    try { await d.open(); } catch (err) { log(`open() lỗi: ${err.message}`); }
+  }
+  if (d) d.addEventListener("inputreport", onInputReport);
+  for (const id of ["export", "readFeatures", "send"]) $(id).disabled = !d;
+  renderDevice(d);
+}
+
+function refreshList() {
+  const sel = $("devices");
+  sel.innerHTML = devices.map((d, i) =>
+    `<option value="${i}">${d.productName || "?"} (${hex(d.vendorId, 4)}:${hex(d.productId, 4)}) — ${d.collections.length} collection</option>`).join("");
+  sel.value = String(Math.max(0, devices.indexOf(current)));
+}
+
+function parseHexBytes(s) {
+  const clean = s.replace(/0x/gi, "").replace(/[^0-9a-f]/gi, "");
+  if (clean.length % 2) throw new Error("Số ký tự hex phải chẵn");
+  return Uint8Array.from(clean.match(/../g) || [], (b) => parseInt(b, 16));
+}
+
+$("connect").onclick = async () => {
+  try {
+    // Empty filter list shows every HID device; the same physical receiver usually appears as several
+    // HIDDevice objects (one per interface), all of which are returned together.
+    const picked = await navigator.hid.requestDevice({ filters: [] });
+    if (!picked.length) return;
+    for (const d of picked) if (!devices.includes(d)) devices.push(d);
+    log(`Đã chọn ${picked.length} interface: ${picked.map((d) => `${hex(d.vendorId, 4)}:${hex(d.productId, 4)}`).join(", ")}`);
+    await select(picked[0]);
+    refreshList();
+  } catch (err) { log(`requestDevice lỗi: ${err.message}`); }
+};
+
+$("devices").onchange = (e) => select(devices[Number(e.target.value)]);
+
+$("export").onclick = () => {
+  const data = devices.map(serializeDevice);
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  const first = devices[0];
+  a.href = URL.createObjectURL(blob);
+  a.download = `hid-${hex(first.vendorId, 4)}-${hex(first.productId, 4)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$("readFeatures").onclick = async () => {
+  const ids = featureReportIds(current);
+  if (!ids.length) { log("Interface này không khai báo feature report (hoặc bị chặn)."); return; }
+  for (const id of ids) {
+    try { log(`GETF id=${hex(id)} ${bytesHex(await current.receiveFeatureReport(id))}`); }
+    catch (err) { log(`GETF id=${hex(id)} lỗi: ${err.message}`); }
+  }
+};
+
+$("send").onclick = async () => {
+  try {
+    const id = Number($("reportId").value);
+    if (!Number.isInteger(id) || id < 0 || id > 255) throw new Error("Report ID phải trong 0–255");
+    const kind = $("kind").value;
+    if (kind === "getFeature") {
+      log(`GETF id=${hex(id)} ${bytesHex(await current.receiveFeatureReport(id))}`);
+      return;
+    }
+    const data = parseHexBytes($("payload").value);
+    if (kind === "output") await current.sendReport(id, data);
+    else await current.sendFeatureReport(id, data);
+    log(`${kind === "output" ? "OUT " : "SETF"} id=${hex(id)} ${bytesHex(new DataView(data.buffer))}`);
+  } catch (err) { log(`Gửi lỗi: ${err.message}`); }
+};
+
+$("clear").onclick = () => { $("log").textContent = ""; };
+
+if (!("hid" in navigator)) {
+  $("support").textContent = "Trình duyệt này không hỗ trợ WebHID (hoặc trang không chạy trên localhost/HTTPS). Dùng Chrome hoặc Edge desktop.";
+  $("connect").disabled = true;
+} else {
+  navigator.hid.getDevices().then((list) => { devices = list; refreshList(); if (list.length) select(list[0]); });
+  navigator.hid.addEventListener("connect", (e) => { log(`connect ${hex(e.device.vendorId, 4)}:${hex(e.device.productId, 4)}`); devices.push(e.device); refreshList(); });
+  navigator.hid.addEventListener("disconnect", (e) => {
+    log(`disconnect ${hex(e.device.vendorId, 4)}:${hex(e.device.productId, 4)}`);
+    devices = devices.filter((d) => d !== e.device);
+    if (current === e.device) select(null);
+    refreshList();
+  });
+}
+</script>
+</body>
+</html>
