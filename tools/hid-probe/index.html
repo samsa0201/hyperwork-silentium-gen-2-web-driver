@@ -161,7 +161,12 @@ async function select(d) {
   if (current) current.removeEventListener("inputreport", onInputReport);
   current = d;
   if (d && !d.opened) {
-    try { await d.open(); } catch (err) { log(`open() lỗi: ${err.message}`); }
+    try { await d.open(); } catch (err) {
+      log(`open() lỗi: ${err.message}`);
+      log("  → Bảng Collections và Export JSON vẫn dùng được (không cần open). Muốn gửi/nhận report thì: " +
+        "macOS: cấp quyền Input Monitoring cho Chrome rồi khởi động lại Chrome; tắt app đang giữ chuột " +
+        "(Karabiner, BetterTouchTool, Mos, LinearMouse, Logi Options…); Linux: thêm udev rule.");
+    }
   }
   if (d) d.addEventListener("inputreport", onInputReport);
   for (const id of ["export", "readFeatures", "send"]) $(id).disabled = !d;
