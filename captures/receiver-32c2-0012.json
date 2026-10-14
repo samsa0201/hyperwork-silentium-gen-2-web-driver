@@ -1,0 +1,193 @@
+[
+  {
+    "capturedAt": "2026-10-14T07:05:57.254Z",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+    "productName": "2.4G Wireless Receiver",
+    "vendorId": 12994,
+    "productId": 18,
+    "vendorIdHex": "0x32c2",
+    "productIdHex": "0x0012",
+    "collections": [
+      {
+        "usagePage": 65461,
+        "usage": 1,
+        "type": 1,
+        "protected": false,
+        "inputReports": [
+          {
+            "reportId": 181,
+            "byteLength": 7,
+            "items": [
+              {
+                "reportSize": 8,
+                "reportCount": 7,
+                "usages": [
+                  4290052098
+                ],
+                "logicalMinimum": 0,
+                "logicalMaximum": 255,
+                "isConstant": false,
+                "isArray": false,
+                "isAbsolute": true
+              }
+            ]
+          }
+        ],
+        "outputReports": [
+          {
+            "reportId": 181,
+            "byteLength": 7,
+            "items": [
+              {
+                "reportSize": 8,
+                "reportCount": 7,
+                "usages": [
+                  4290052098
+                ],
+                "logicalMinimum": 0,
+                "logicalMaximum": 255,
+                "isConstant": false,
+                "isArray": false,
+                "isAbsolute": true
+              }
+            ]
+          }
+        ],
+        "featureReports": [],
+        "children": []
+      },
+      {
+        "usagePage": 1,
+        "usage": 2,
+        "type": 1,
+        "protected": true,
+        "inputReports": [],
+        "outputReports": [],
+        "featureReports": [],
+        "children": [
+          {
+            "usagePage": 1,
+            "usage": 1,
+            "type": 0,
+            "protected": true,
+            "inputReports": [
+              {
+                "reportId": 2,
+                "byteLength": 6,
+                "items": [
+                  {
+                    "reportSize": 1,
+                    "reportCount": 8,
+                    "usageMinimum": 589825,
+                    "usageMaximum": 589832,
+                    "logicalMinimum": 0,
+                    "logicalMaximum": 1,
+                    "isConstant": false,
+                    "isArray": false,
+                    "isAbsolute": true
+                  },
+                  {
+                    "reportSize": 12,
+                    "reportCount": 2,
+                    "usages": [
+                      65584,
+                      65585
+                    ],
+                    "logicalMinimum": -2047,
+                    "logicalMaximum": 2047,
+                    "isConstant": false,
+                    "isArray": false,
+                    "isAbsolute": false
+                  },
+                  {
+                    "reportSize": 8,
+                    "reportCount": 1,
+                    "usages": [
+                      65592
+                    ],
+                    "logicalMinimum": -127,
+                    "logicalMaximum": 127,
+                    "isConstant": false,
+                    "isArray": false,
+                    "isAbsolute": false
+                  },
+                  {
+                    "reportSize": 8,
+                    "reportCount": 1,
+                    "usages": [
+                      787000
+                    ],
+                    "logicalMinimum": -127,
+                    "logicalMaximum": 127,
+                    "isConstant": false,
+                    "isArray": false,
+                    "isAbsolute": false
+                  }
+                ]
+              }
+            ],
+            "outputReports": [],
+            "featureReports": [],
+            "children": []
+          }
+        ]
+      },
+      {
+        "usagePage": 12,
+        "usage": 1,
+        "type": 1,
+        "protected": false,
+        "inputReports": [
+          {
+            "reportId": 1,
+            "byteLength": 2,
+            "items": [
+              {
+                "reportSize": 16,
+                "reportCount": 1,
+                "usageMinimum": 786433,
+                "usageMaximum": 787455,
+                "logicalMinimum": 1,
+                "logicalMaximum": 1023,
+                "isConstant": false,
+                "isArray": true,
+                "isAbsolute": true
+              }
+            ]
+          }
+        ],
+        "outputReports": [],
+        "featureReports": [],
+        "children": []
+      },
+      {
+        "usagePage": 65468,
+        "usage": 136,
+        "type": 1,
+        "protected": false,
+        "inputReports": [
+          {
+            "reportId": 4,
+            "byteLength": 1,
+            "items": [
+              {
+                "reportSize": 8,
+                "reportCount": 1,
+                "usageMinimum": 4290510848,
+                "usageMaximum": 4290511103,
+                "logicalMinimum": 0,
+                "logicalMaximum": 255,
+                "isConstant": false,
+                "isArray": true,
+                "isAbsolute": true
+              }
+            ]
+          }
+        ],
+        "outputReports": [],
+        "featureReports": [],
+        "children": []
+      }
+    ]
+  }
+]

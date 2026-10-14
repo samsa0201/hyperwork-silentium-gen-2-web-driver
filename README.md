@@ -8,7 +8,8 @@ Web driver (chạy trên trình duyệt, dùng WebHID) cho chuột HyperWork Sil
 
 - `docs/RESEARCH.md` — tổng hợp thông tin thiết bị, nền tảng WebHID, kiến trúc đề xuất, quy trình reverse-engineer.
 - `tools/hid-probe/` — trang WebHID để dò HID descriptor, đọc feature report, log input report và export JSON.
-- `captures/` — nơi lưu JSON descriptor / pcap bắt được từ thiết bị thật.
+- `docs/PROTOCOL.md` — phân tích descriptor và giao thức đã biết.
+- `captures/` — JSON descriptor / pcap bắt được từ thiết bị thật.
 
 ## Chạy hid-probe
 
