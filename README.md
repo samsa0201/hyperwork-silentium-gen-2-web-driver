@@ -17,4 +17,4 @@ python3 -m http.server 8000
 # mở http://localhost:8000/tools/hid-probe/ bằng Chrome hoặc Edge desktop
 ```
 
-Bấm **Kết nối thiết bị…**, chọn receiver của chuột (chọn tất cả interface), rồi **Export JSON** và lưu vào `captures/`.
+Bấm **Kết nối thiết bị…** và chọn một mục của chuột (hộp chọn của Chrome chỉ cho chọn một mục mỗi lần, mỗi mục đã gồm mọi interface của thiết bị đó). Nếu có nhiều mục (ví dụ "2.4G Wireless Receiver" và "2.4G Mouse"), bấm kết nối lại để thêm từng mục, rồi **Export JSON** (xuất tất cả) và lưu vào `captures/`.
