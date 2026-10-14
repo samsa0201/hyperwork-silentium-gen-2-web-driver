@@ -9,6 +9,7 @@ Cấu hình DPI/nút lúc chạy vẫn chưa có giao thức. Xem thêm [docs/RE
 ## Cấu trúc
 
 - `docs/OTA.md` — phân tích gói cập nhật `MS01_G2_update.rar`: chip OnMicro OM6621, giao thức Nordic Secure DFU qua BLE.
+- `docs/FIRMWARE.md` — dịch ngược firmware: CRC của gói, xử lý nút, bảng macro, bảng tổ hợp nút → action (nền tảng cho việc patch đổi nút).
 - `tools/ble-ota/` — trang Web Bluetooth cập nhật firmware (thay BLEOTATool chỉ có trên Windows).
 - `docs/RESEARCH.md` — tổng hợp thông tin thiết bị, nền tảng WebHID, kiến trúc đề xuất, quy trình reverse-engineer.
 - `tools/hid-probe/` — trang WebHID để dò HID descriptor, đọc feature report, log input report và export JSON.
