@@ -1,39 +1,51 @@
 # HyperWork Silentium Gen 2 — Web Driver
 
-Web driver (chạy trên trình duyệt, dùng Web Bluetooth / WebHID) cho chuột HyperWork Silentium Gen 2 (MS01G2).
+**A browser-based driver for the HyperWork Silentium Gen 2 (MS01G2) wireless mouse**, built on Web Bluetooth and
+WebHID, so it runs in Chrome or Edge on any desktop OS instead of a Windows-only vendor tool.
+[Tiếng Việt](README.vi.md)
 
-**Trạng thái:** đã có trang cập nhật firmware qua Web Bluetooth (`tools/ble-ota/`, dựa trên dịch ngược công cụ OTA
-chính hãng — xem [docs/OTA.md](docs/OTA.md)); đã kiểm thử với thiết bị giả lập, **chưa thử trên chuột thật**.
-Cấu hình DPI/nút lúc chạy vẫn chưa có giao thức. Xem thêm [docs/RESEARCH.md](docs/RESEARCH.md).
+## Status
 
-## Cấu trúc
+- ✅ **Firmware update over Web Bluetooth** (`tools/ble-ota/`), based on reverse engineering the official OTA tool
+  ([docs/OTA.md](docs/OTA.md)). Tested against a simulated device; **not yet tried on a real mouse**.
+- ✅ **HID probe** (`tools/hid-probe/`): reads HID descriptors and feature reports, logs input reports, exports JSON.
+- ⏳ Runtime DPI and button configuration: the protocol is not known yet. See [docs/RESEARCH.md](docs/RESEARCH.md).
 
-- `docs/OTA.md` — phân tích gói cập nhật `MS01_G2_update.rar`: chip OnMicro OM6621, giao thức Nordic Secure DFU qua BLE.
-- `docs/FIRMWARE.md` — dịch ngược firmware: CRC của gói, xử lý nút, bảng macro, bảng tổ hợp nút → action (nền tảng cho việc patch đổi nút).
-- `tools/ble-ota/` — trang Web Bluetooth cập nhật firmware (thay BLEOTATool chỉ có trên Windows).
-- `docs/RESEARCH.md` — tổng hợp thông tin thiết bị, nền tảng WebHID, kiến trúc đề xuất, quy trình reverse-engineer.
-- `tools/hid-probe/` — trang WebHID để dò HID descriptor, đọc feature report, log input report và export JSON.
-- `docs/PROTOCOL.md` — phân tích descriptor và giao thức đã biết.
-- `captures/` — JSON descriptor / pcap bắt được từ thiết bị thật.
+## What is inside
 
-## Chạy hid-probe
+| Path | Contents |
+|---|---|
+| `docs/OTA.md` | Analysis of the vendor update package `MS01_G2_update.rar`: OnMicro OM6621 chip, Nordic Secure DFU over BLE |
+| `docs/FIRMWARE.md` | Firmware reverse engineering: package CRC, button handling, macro table, button-combo → action table (groundwork for patching button mappings) |
+| `docs/PROTOCOL.md` | HID descriptor analysis and the known protocol |
+| `docs/RESEARCH.md` | Device facts, the WebHID platform, proposed architecture, the reverse-engineering process |
+| `tools/ble-ota/` | Web Bluetooth firmware updater (replaces the Windows-only BLEOTATool) |
+| `tools/hid-probe/` | WebHID probe for descriptors and reports |
+| `captures/` | Descriptor JSON and pcaps captured from a real device |
 
-```sh
-python3 -m http.server 8000
-# mở http://localhost:8000/tools/hid-probe/ bằng Chrome hoặc Edge desktop
-```
-
-Bấm **Kết nối thiết bị…** và chọn một mục của chuột (hộp chọn của Chrome chỉ cho chọn một mục mỗi lần, mỗi mục đã gồm mọi interface của thiết bị đó). Nếu có nhiều mục (ví dụ "2.4G Wireless Receiver" và "2.4G Mouse"), bấm kết nối lại để thêm từng mục, rồi **Export JSON** (xuất tất cả) và lưu vào `captures/`.
-
-## Chạy ble-ota (cập nhật firmware)
+## Run the HID probe
 
 ```sh
 python3 -m http.server 8000
-# mở http://localhost:8000/tools/ble-ota/ bằng Chrome hoặc Edge desktop
+# open http://localhost:8000/tools/hid-probe/ in desktop Chrome or Edge
 ```
 
-1. Giải nén `MS01_G2_update.rar` của HyperWork, chọn file `MS01G2UPDATE.zip` trong trang.
-2. Chuyển chuột sang Bluetooth, giữ nút kết nối 3 giây (chế độ ghép nối, **không** ghép với máy).
-3. **Chọn chuột…** → chọn đúng tên chuột → tick xác nhận → **Bắt đầu cập nhật**.
+Click **Connect device…** and pick one entry for the mouse (Chrome's chooser selects one entry at a time; each entry
+already includes every interface of that device). If there are several entries (for example "2.4G Wireless Receiver"
+and "2.4G Mouse"), connect again to add each one, then **Export JSON** and save it to `captures/`.
 
-Trên macOS cần cho Chrome quyền Bluetooth (System Settings → Privacy & Security → Bluetooth).
+## Update firmware (ble-ota)
+
+```sh
+python3 -m http.server 8000
+# open http://localhost:8000/tools/ble-ota/ in desktop Chrome or Edge
+```
+
+1. Extract HyperWork's `MS01_G2_update.rar` and choose `MS01G2UPDATE.zip` on the page.
+2. Switch the mouse to Bluetooth and hold the connect button for 3 seconds (pairing mode; do **not** pair it with the
+   computer).
+3. **Choose mouse…** → pick the right device → tick the confirmation → **Start update**.
+
+On macOS, Chrome needs the Bluetooth permission (System Settings → Privacy & Security → Bluetooth).
+
+> Flashing firmware can brick a device. The updater has only been tested against a simulator; use it at your own risk.
